@@ -1,0 +1,1160 @@
+{
+  "name": "workflow-mcp",
+  "version": "0.2.0",
+  "purpose": "Codex development workflow state machine and artifact coordination",
+  "workflow": {
+    "states": [
+      "DISCOVERY",
+      "WAITING_CONTEXT_INPUT",
+      "PLANNING",
+      "WAITING_APPROVAL",
+      "IMPLEMENTING",
+      "REVIEWING",
+      "COMPLETED"
+    ],
+    "terminalStates": [
+      "COMPLETED"
+    ],
+    "globalRules": [
+      "Implementation writes are allowed only in IMPLEMENTING.",
+      "IMPLEMENTING may be entered only after PLAN_APPROVED.",
+      "approvedPlanVersion must equal currentPlanVersion before implementation.",
+      "Creating a new plan version invalidates any previous approval.",
+      "When additional context is required, transition to DISCOVERY.",
+      "REVIEWING -> IMPLEMENTING is allowed only for fixes within the approved plan scope.",
+      "COMPLETED may be entered only through a passed review.",
+      "COMPLETED is terminal; follow-up work starts a new workflow."
+    ]
+  },
+  "tools": [
+    {
+      "name": "workflow_start",
+      "role": "Create a new workflow",
+      "input": {
+        "task": "string",
+        "sessionId": "string?",
+        "projectPath": "string?"
+      },
+      "guards": [],
+      "effects": [
+        "Create workflow",
+        "Set currentState = DISCOVERY"
+      ],
+      "output": {
+        "workflowId": "string",
+        "state": "DISCOVERY"
+      },
+      "nextState": "DISCOVERY",
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "task"
+        ],
+        "properties": {
+          "task": {
+            "type": "string",
+            "minLength": 1
+          },
+          "sessionId": {
+            "type": "string"
+          },
+          "projectPath": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false
+      },
+      "outputSchema": {
+        "type": "object",
+        "required": [
+          "ok",
+          "workflowId",
+          "state"
+        ],
+        "properties": {
+          "ok": {
+            "const": true
+          },
+          "workflowId": {
+            "type": "string"
+          },
+          "state": {
+            "const": "DISCOVERY"
+          }
+        },
+        "additionalProperties": false
+      },
+      "errors": [
+        "VALIDATION_ERROR"
+      ]
+    },
+    {
+      "name": "workflow_status",
+      "role": "Read current workflow state",
+      "input": {
+        "workflowId": "string"
+      },
+      "guards": [
+        "workflow exists"
+      ],
+      "effects": [],
+      "output": {
+        "workflowId": "string",
+        "state": "WorkflowState",
+        "planVersion": "number?",
+        "approvedPlanVersion": "number?",
+        "latestArtifacts": {
+          "contextId": "string?",
+          "planId": "string?",
+          "approvalId": "string?",
+          "implementationId": "string?",
+          "reviewId": "string?"
+        }
+      },
+      "nextState": "UNCHANGED",
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "workflowId"
+        ],
+        "properties": {
+          "workflowId": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "additionalProperties": false
+      },
+      "outputSchema": {
+        "type": "object",
+        "required": [
+          "ok",
+          "workflowId",
+          "state",
+          "latestArtifacts"
+        ],
+        "properties": {
+          "ok": {
+            "const": true
+          },
+          "workflowId": {
+            "type": "string"
+          },
+          "state": {
+            "type": "string"
+          },
+          "planVersion": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "approvedPlanVersion": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "latestArtifacts": {
+            "type": "object",
+            "properties": {
+              "contextId": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "planId": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "approvalId": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "implementationId": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "reviewId": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            },
+            "additionalProperties": false
+          }
+        },
+        "additionalProperties": false
+      },
+      "errors": [
+        "WORKFLOW_NOT_FOUND",
+        "VALIDATION_ERROR"
+      ]
+    },
+    {
+      "name": "submit_context",
+      "role": "Register Discovery result",
+      "input": {
+        "workflowId": "string",
+        "context": "ContextArtifact"
+      },
+      "guards": [
+        "currentState == DISCOVERY",
+        "ContextArtifact is valid"
+      ],
+      "effects": [
+        "Store ContextArtifact"
+      ],
+      "output": {
+        "state": "PLANNING"
+      },
+      "nextState": "PLANNING",
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "workflowId",
+          "context"
+        ],
+        "properties": {
+          "workflowId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "context": {
+            "$ref": "#/artifacts/ContextArtifact"
+          }
+        },
+        "additionalProperties": false
+      },
+      "outputSchema": {
+        "type": "object",
+        "required": [
+          "ok",
+          "workflowId",
+          "previousState",
+          "state",
+          "artifactIds"
+        ],
+        "properties": {
+          "ok": {
+            "const": true
+          },
+          "workflowId": {
+            "type": "string"
+          },
+          "previousState": {
+            "const": "DISCOVERY"
+          },
+          "state": {
+            "const": "PLANNING"
+          },
+          "artifactIds": {
+            "type": "object",
+            "required": [
+              "contextId"
+            ],
+            "properties": {
+              "contextId": {
+                "type": "string"
+              }
+            },
+            "additionalProperties": false
+          }
+        },
+        "additionalProperties": false
+      },
+      "errors": [
+        "WORKFLOW_NOT_FOUND",
+        "INVALID_STATE_TRANSITION",
+        "INVALID_ARTIFACT",
+        "CONTEXT_NOT_SUFFICIENT",
+        "VALIDATION_ERROR"
+      ]
+    },
+    {
+      "name": "request_user_context",
+      "role": "Request context that only the user can provide",
+      "input": {
+        "workflowId": "string",
+        "reason": "string",
+        "requestedContext": "string[]"
+      },
+      "guards": [
+        "currentState == DISCOVERY",
+        "User input is required to proceed"
+      ],
+      "effects": [
+        "Store requested user context requirement"
+      ],
+      "output": {
+        "state": "WAITING_CONTEXT_INPUT"
+      },
+      "nextState": "WAITING_CONTEXT_INPUT",
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "workflowId",
+          "reason",
+          "requestedContext"
+        ],
+        "properties": {
+          "workflowId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "reason": {
+            "type": "string",
+            "minLength": 1
+          },
+          "requestedContext": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        },
+        "additionalProperties": false
+      },
+      "outputSchema": {
+        "type": "object",
+        "required": [
+          "ok",
+          "workflowId",
+          "previousState",
+          "state"
+        ],
+        "properties": {
+          "ok": {
+            "const": true
+          },
+          "workflowId": {
+            "type": "string"
+          },
+          "previousState": {
+            "const": "DISCOVERY"
+          },
+          "state": {
+            "const": "WAITING_CONTEXT_INPUT"
+          }
+        },
+        "additionalProperties": false
+      },
+      "errors": [
+        "WORKFLOW_NOT_FOUND",
+        "INVALID_STATE_TRANSITION",
+        "VALIDATION_ERROR"
+      ]
+    },
+    {
+      "name": "provide_user_context",
+      "role": "Record user-provided context",
+      "input": {
+        "workflowId": "string",
+        "content": "string"
+      },
+      "guards": [
+        "currentState == WAITING_CONTEXT_INPUT",
+        "content exists"
+      ],
+      "effects": [
+        "Store user-provided context"
+      ],
+      "output": {
+        "state": "DISCOVERY"
+      },
+      "nextState": "DISCOVERY",
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "workflowId",
+          "content"
+        ],
+        "properties": {
+          "workflowId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "content": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "additionalProperties": false
+      },
+      "outputSchema": {
+        "type": "object",
+        "required": [
+          "ok",
+          "workflowId",
+          "previousState",
+          "state"
+        ],
+        "properties": {
+          "ok": {
+            "const": true
+          },
+          "workflowId": {
+            "type": "string"
+          },
+          "previousState": {
+            "const": "WAITING_CONTEXT_INPUT"
+          },
+          "state": {
+            "const": "DISCOVERY"
+          }
+        },
+        "additionalProperties": false
+      },
+      "errors": [
+        "WORKFLOW_NOT_FOUND",
+        "INVALID_STATE_TRANSITION",
+        "VALIDATION_ERROR"
+      ]
+    },
+    {
+      "name": "submit_plan",
+      "role": "Register implementation plan",
+      "input": {
+        "workflowId": "string",
+        "plan": "PlanArtifact"
+      },
+      "guards": [
+        "currentState == PLANNING",
+        "PlanArtifact is valid",
+        "plan.goal exists",
+        "plan.scope exists",
+        "plan.steps is not empty",
+        "plan.runtimeFlow is not empty",
+        "plan.tests.happyPath is not empty",
+        "plan.tests.edgeCases is not empty",
+        "plan.tests.failurePaths is not empty"
+      ],
+      "effects": [
+        "Increment currentPlanVersion",
+        "Store PlanArtifact with currentPlanVersion",
+        "Set approvedPlanVersion = null"
+      ],
+      "output": {
+        "state": "WAITING_APPROVAL",
+        "planVersion": "number",
+        "approvedPlanVersion": null
+      },
+      "nextState": "WAITING_APPROVAL",
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "workflowId",
+          "plan"
+        ],
+        "properties": {
+          "workflowId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "plan": {
+            "$ref": "#/artifacts/PlanArtifact"
+          }
+        },
+        "additionalProperties": false
+      },
+      "outputSchema": {
+        "type": "object",
+        "required": [
+          "ok",
+          "workflowId",
+          "previousState",
+          "state",
+          "planVersion",
+          "approvedPlanVersion",
+          "artifactIds"
+        ],
+        "properties": {
+          "ok": {
+            "const": true
+          },
+          "workflowId": {
+            "type": "string"
+          },
+          "previousState": {
+            "const": "PLANNING"
+          },
+          "state": {
+            "const": "WAITING_APPROVAL"
+          },
+          "planVersion": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "approvedPlanVersion": {
+            "type": "null"
+          },
+          "artifactIds": {
+            "type": "object",
+            "required": [
+              "planId"
+            ],
+            "properties": {
+              "planId": {
+                "type": "string"
+              }
+            },
+            "additionalProperties": false
+          }
+        },
+        "additionalProperties": false
+      },
+      "errors": [
+        "WORKFLOW_NOT_FOUND",
+        "INVALID_STATE_TRANSITION",
+        "INVALID_ARTIFACT",
+        "VALIDATION_ERROR"
+      ]
+    },
+    {
+      "name": "approve_plan",
+      "role": "Record explicit user approval for the current plan",
+      "input": {
+        "workflowId": "string",
+        "planVersion": "number"
+      },
+      "guards": [
+        "currentState == WAITING_APPROVAL",
+        "current plan exists",
+        "planVersion == currentPlanVersion",
+        "tool call is based on explicit user approval",
+        "Codex must not self-approve a plan"
+      ],
+      "effects": [
+        "Store ApprovalArtifact",
+        "Set approvedPlanVersion = planVersion"
+      ],
+      "output": {
+        "state": "IMPLEMENTING",
+        "approvedPlanVersion": "number"
+      },
+      "nextState": "IMPLEMENTING",
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "workflowId",
+          "planVersion"
+        ],
+        "properties": {
+          "workflowId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "planVersion": {
+            "type": "integer",
+            "minimum": 1
+          }
+        },
+        "additionalProperties": false
+      },
+      "outputSchema": {
+        "type": "object",
+        "required": [
+          "ok",
+          "workflowId",
+          "previousState",
+          "state",
+          "approvedPlanVersion",
+          "artifactIds"
+        ],
+        "properties": {
+          "ok": {
+            "const": true
+          },
+          "workflowId": {
+            "type": "string"
+          },
+          "previousState": {
+            "const": "WAITING_APPROVAL"
+          },
+          "state": {
+            "const": "IMPLEMENTING"
+          },
+          "approvedPlanVersion": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "artifactIds": {
+            "type": "object",
+            "required": [
+              "approvalId"
+            ],
+            "properties": {
+              "approvalId": {
+                "type": "string"
+              }
+            },
+            "additionalProperties": false
+          }
+        },
+        "additionalProperties": false
+      },
+      "errors": [
+        "WORKFLOW_NOT_FOUND",
+        "INVALID_STATE_TRANSITION",
+        "PLAN_NOT_FOUND",
+        "PLAN_VERSION_MISMATCH",
+        "APPROVAL_REQUIRED",
+        "VALIDATION_ERROR"
+      ]
+    },
+    {
+      "name": "require_context",
+      "role": "Return workflow to Discovery when additional context is required",
+      "input": {
+        "workflowId": "string",
+        "reason": "string",
+        "neededContext": "string[]"
+      },
+      "allowedStates": [
+        "PLANNING",
+        "WAITING_APPROVAL",
+        "IMPLEMENTING",
+        "REVIEWING"
+      ],
+      "guards": [
+        "currentState is one of allowedStates",
+        "Additional context is required to continue safely"
+      ],
+      "effects": [
+        "Store reason and neededContext",
+        "Set approvedPlanVersion = null if an approval currently exists"
+      ],
+      "output": {
+        "state": "DISCOVERY"
+      },
+      "nextState": "DISCOVERY",
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "workflowId",
+          "reason",
+          "neededContext"
+        ],
+        "properties": {
+          "workflowId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "reason": {
+            "type": "string",
+            "minLength": 1
+          },
+          "neededContext": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        },
+        "additionalProperties": false
+      },
+      "outputSchema": {
+        "type": "object",
+        "required": [
+          "ok",
+          "workflowId",
+          "previousState",
+          "state",
+          "approvedPlanVersion"
+        ],
+        "properties": {
+          "ok": {
+            "const": true
+          },
+          "workflowId": {
+            "type": "string"
+          },
+          "previousState": {
+            "enum": [
+              "PLANNING",
+              "WAITING_APPROVAL",
+              "IMPLEMENTING",
+              "REVIEWING"
+            ]
+          },
+          "state": {
+            "const": "DISCOVERY"
+          },
+          "approvedPlanVersion": {
+            "type": "null"
+          }
+        },
+        "additionalProperties": false
+      },
+      "errors": [
+        "WORKFLOW_NOT_FOUND",
+        "INVALID_STATE_TRANSITION",
+        "VALIDATION_ERROR"
+      ]
+    },
+    {
+      "name": "complete_implementation",
+      "role": "Register implementation completion",
+      "input": {
+        "workflowId": "string",
+        "implementation": "ImplementationArtifact"
+      },
+      "guards": [
+        "currentState == IMPLEMENTING",
+        "currentPlanVersion != null",
+        "approvedPlanVersion == currentPlanVersion",
+        "implementation.planVersion == currentPlanVersion"
+      ],
+      "effects": [
+        "Store ImplementationArtifact"
+      ],
+      "output": {
+        "state": "REVIEWING"
+      },
+      "nextState": "REVIEWING",
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "workflowId",
+          "implementation"
+        ],
+        "properties": {
+          "workflowId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "implementation": {
+            "$ref": "#/artifacts/ImplementationArtifact"
+          }
+        },
+        "additionalProperties": false
+      },
+      "outputSchema": {
+        "type": "object",
+        "required": [
+          "ok",
+          "workflowId",
+          "previousState",
+          "state",
+          "artifactIds"
+        ],
+        "properties": {
+          "ok": {
+            "const": true
+          },
+          "workflowId": {
+            "type": "string"
+          },
+          "previousState": {
+            "const": "IMPLEMENTING"
+          },
+          "state": {
+            "const": "REVIEWING"
+          },
+          "artifactIds": {
+            "type": "object",
+            "required": [
+              "implementationId"
+            ],
+            "properties": {
+              "implementationId": {
+                "type": "string"
+              }
+            },
+            "additionalProperties": false
+          }
+        },
+        "additionalProperties": false
+      },
+      "errors": [
+        "WORKFLOW_NOT_FOUND",
+        "INVALID_STATE_TRANSITION",
+        "PLAN_NOT_FOUND",
+        "PLAN_NOT_APPROVED",
+        "PLAN_VERSION_MISMATCH",
+        "INVALID_ARTIFACT",
+        "VALIDATION_ERROR"
+      ]
+    },
+    {
+      "name": "submit_review",
+      "role": "Register review result and transition by verdict",
+      "input": {
+        "workflowId": "string",
+        "review": "ReviewArtifact"
+      },
+      "guards": [
+        "currentState == REVIEWING",
+        "review.planVersion == currentPlanVersion"
+      ],
+      "verdictTransitions": {
+        "passed": {
+          "effects": [
+            "Store ReviewArtifact"
+          ],
+          "nextState": "COMPLETED"
+        },
+        "fix_required": {
+          "effects": [
+            "Store ReviewArtifact",
+            "Keep approvedPlanVersion unchanged"
+          ],
+          "nextState": "IMPLEMENTING"
+        },
+        "context_required": {
+          "effects": [
+            "Store ReviewArtifact",
+            "Set approvedPlanVersion = null"
+          ],
+          "nextState": "DISCOVERY"
+        }
+      },
+      "output": {
+        "state": "WorkflowState",
+        "verdict": "passed | fix_required | context_required"
+      },
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "workflowId",
+          "review"
+        ],
+        "properties": {
+          "workflowId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "review": {
+            "$ref": "#/artifacts/ReviewArtifact"
+          }
+        },
+        "additionalProperties": false
+      },
+      "outputSchema": {
+        "oneOf": [
+          {
+            "type": "object",
+            "required": [
+              "ok",
+              "workflowId",
+              "previousState",
+              "state",
+              "verdict",
+              "artifactIds"
+            ],
+            "properties": {
+              "ok": {
+                "const": true
+              },
+              "workflowId": {
+                "type": "string"
+              },
+              "previousState": {
+                "const": "REVIEWING"
+              },
+              "state": {
+                "const": "COMPLETED"
+              },
+              "verdict": {
+                "const": "passed"
+              },
+              "artifactIds": {
+                "type": "object",
+                "required": [
+                  "reviewId"
+                ],
+                "properties": {
+                  "reviewId": {
+                    "type": "string"
+                  }
+                },
+                "additionalProperties": false
+              }
+            },
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "required": [
+              "ok",
+              "workflowId",
+              "previousState",
+              "state",
+              "verdict",
+              "artifactIds"
+            ],
+            "properties": {
+              "ok": {
+                "const": true
+              },
+              "workflowId": {
+                "type": "string"
+              },
+              "previousState": {
+                "const": "REVIEWING"
+              },
+              "state": {
+                "const": "IMPLEMENTING"
+              },
+              "verdict": {
+                "const": "fix_required"
+              },
+              "artifactIds": {
+                "type": "object",
+                "required": [
+                  "reviewId"
+                ],
+                "properties": {
+                  "reviewId": {
+                    "type": "string"
+                  }
+                },
+                "additionalProperties": false
+              }
+            },
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "required": [
+              "ok",
+              "workflowId",
+              "previousState",
+              "state",
+              "verdict",
+              "approvedPlanVersion",
+              "artifactIds"
+            ],
+            "properties": {
+              "ok": {
+                "const": true
+              },
+              "workflowId": {
+                "type": "string"
+              },
+              "previousState": {
+                "const": "REVIEWING"
+              },
+              "state": {
+                "const": "DISCOVERY"
+              },
+              "verdict": {
+                "const": "context_required"
+              },
+              "approvedPlanVersion": {
+                "type": "null"
+              },
+              "artifactIds": {
+                "type": "object",
+                "required": [
+                  "reviewId"
+                ],
+                "properties": {
+                  "reviewId": {
+                    "type": "string"
+                  }
+                },
+                "additionalProperties": false
+              }
+            },
+            "additionalProperties": false
+          }
+        ]
+      },
+      "errors": [
+        "WORKFLOW_NOT_FOUND",
+        "INVALID_STATE_TRANSITION",
+        "PLAN_VERSION_MISMATCH",
+        "INVALID_ARTIFACT",
+        "REVIEW_VERDICT_INVALID",
+        "VALIDATION_ERROR"
+      ]
+    }
+  ],
+  "artifacts": {
+    "ContextArtifact": {
+      "id": "string",
+      "workflowId": "string",
+      "sources": [
+        {
+          "type": "code | test | mcp | db | information_schema | memory | document | implementation_rule",
+          "location": "string",
+          "finding": "string",
+          "reason": "string",
+          "usedFor": "string",
+          "confidence": "high | medium | low"
+        }
+      ],
+      "missingContext": "string[]",
+      "uncertainContext": "string[]",
+      "implementationRules": "string[]",
+      "createdAt": "string"
+    },
+    "PlanArtifact": {
+      "id": "string",
+      "workflowId": "string",
+      "version": "number",
+      "goal": "string",
+      "scope": {
+        "included": "string[]",
+        "excluded": "string[]"
+      },
+      "steps": [
+        {
+          "id": "string",
+          "description": "string",
+          "affectedAreas": "string[]",
+          "contextRefs": "string[]"
+        }
+      ],
+      "runtimeFlow": "string[]",
+      "tests": {
+        "happyPath": "TestScenario[]",
+        "edgeCases": "TestScenario[]",
+        "failurePaths": "TestScenario[]"
+      },
+      "assumptions": "string[]",
+      "risks": "string[]",
+      "createdAt": "string"
+    },
+    "TestScenario": {
+      "id": "string",
+      "description": "string",
+      "expectedResult": "string"
+    },
+    "ApprovalArtifact": {
+      "id": "string",
+      "workflowId": "string",
+      "planVersion": "number",
+      "approved": "boolean",
+      "approvedAt": "string"
+    },
+    "ImplementationArtifact": {
+      "id": "string",
+      "workflowId": "string",
+      "planVersion": "number",
+      "changedFiles": "string[]",
+      "testsRun": [
+        {
+          "command": "string",
+          "result": "passed | failed",
+          "summary": "string?"
+        }
+      ],
+      "deviations": [
+        {
+          "description": "string",
+          "reason": "string"
+        }
+      ],
+      "result": "completed | stopped_for_context",
+      "createdAt": "string"
+    },
+    "ReviewArtifact": {
+      "id": "string",
+      "workflowId": "string",
+      "planVersion": "number",
+      "verdict": "passed | fix_required | context_required",
+      "planCompliance": {
+        "passed": "boolean",
+        "findings": "string[]"
+      },
+      "implementationRuleCompliance": {
+        "passed": "boolean",
+        "findings": "string[]"
+      },
+      "testCompliance": {
+        "happyPath": "boolean",
+        "edgeCases": "boolean",
+        "failurePaths": "boolean",
+        "findings": "string[]"
+      },
+      "scopeCompliance": {
+        "passed": "boolean",
+        "findings": "string[]"
+      },
+      "requirementCoverage": {
+        "passed": "boolean",
+        "findings": "string[]"
+      },
+      "createdAt": "string"
+    }
+  },
+  "errors": {
+    "WORKFLOW_NOT_FOUND": {
+      "httpEquivalent": 404,
+      "message": "Workflow does not exist."
+    },
+    "INVALID_STATE_TRANSITION": {
+      "httpEquivalent": 409,
+      "message": "The requested operation is not allowed from the current workflow state."
+    },
+    "INVALID_ARTIFACT": {
+      "httpEquivalent": 400,
+      "message": "The supplied artifact does not satisfy the required schema or semantic constraints."
+    },
+    "PLAN_NOT_FOUND": {
+      "httpEquivalent": 404,
+      "message": "No current plan exists for this workflow."
+    },
+    "PLAN_VERSION_MISMATCH": {
+      "httpEquivalent": 409,
+      "message": "The requested plan version does not match the current plan version."
+    },
+    "PLAN_NOT_APPROVED": {
+      "httpEquivalent": 403,
+      "message": "The current plan has not been explicitly approved by the user."
+    },
+    "APPROVAL_REQUIRED": {
+      "httpEquivalent": 403,
+      "message": "Explicit user approval is required before implementation can begin."
+    },
+    "USER_CONTEXT_REQUIRED": {
+      "httpEquivalent": 409,
+      "message": "The workflow is waiting for user-provided context."
+    },
+    "CONTEXT_NOT_SUFFICIENT": {
+      "httpEquivalent": 409,
+      "message": "The available context is not sufficient for the requested transition."
+    },
+    "REVIEW_VERDICT_INVALID": {
+      "httpEquivalent": 400,
+      "message": "Review verdict must be one of: passed, fix_required, context_required."
+    },
+    "VALIDATION_ERROR": {
+      "httpEquivalent": 400,
+      "message": "One or more required fields are missing or invalid."
+    }
+  },
+  "commonResponse": {
+    "success": {
+      "ok": true,
+      "workflowId": "string",
+      "previousState": "WorkflowState?",
+      "state": "WorkflowState",
+      "event": "string?",
+      "artifactIds": "object?",
+      "message": "string?"
+    },
+    "error": {
+      "ok": false,
+      "error": {
+        "code": "string",
+        "message": "string",
+        "details": "object?"
+      }
+    }
+  }
+}
