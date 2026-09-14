@@ -298,11 +298,11 @@ Python/MCP 실행
 
 - [ ] spec/schema 독립 버전과 ID/시간/동시성 정책 확정
 - [x] SQLite migration과 최소 DB helper 구현
-- [ ] 7개 상태와 모든 허용/금지 전이 구현
+- [x] 7개 상태와 모든 허용/금지 전이 구현
 - [ ] 10개 MCP 도구 등록 및 response/error 계약 준수
 - [ ] Artifact 및 Plan version 검증 구현
 - [ ] 모든 상태 변경에 Event 기록
-- [ ] 정상·분기·실패·경계 테스트 통과
+- [x] 정상·분기·실패·경계 테스트 통과
 - [ ] Codex App 연결과 Skill 정책 작성
 - [ ] 재시작 후 데이터 보존 확인
 - [ ] README, 상태 전이 문서, 실행 방법, CI 작성

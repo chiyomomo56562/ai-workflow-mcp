@@ -1,4 +1,4 @@
-"""Phase 0 models for the minimum workflow vertical slice."""
+"""Domain enums and workflow value objects."""
 
 from dataclasses import dataclass
 from enum import StrEnum
@@ -12,6 +12,37 @@ class WorkflowState(StrEnum):
     IMPLEMENTING = "IMPLEMENTING"
     REVIEWING = "REVIEWING"
     COMPLETED = "COMPLETED"
+
+
+class ArtifactType(StrEnum):
+    CONTEXT = "CONTEXT"
+    PLAN = "PLAN"
+    APPROVAL = "APPROVAL"
+    IMPLEMENTATION = "IMPLEMENTATION"
+    REVIEW = "REVIEW"
+    USER_CONTEXT_REQUEST = "USER_CONTEXT_REQUEST"
+    USER_CONTEXT_RESPONSE = "USER_CONTEXT_RESPONSE"
+    CONTEXT_REQUIREMENT = "CONTEXT_REQUIREMENT"
+
+
+class ReviewVerdict(StrEnum):
+    PASSED = "passed"
+    FIX_REQUIRED = "fix_required"
+    CONTEXT_REQUIRED = "context_required"
+
+
+class ErrorCode(StrEnum):
+    WORKFLOW_NOT_FOUND = "WORKFLOW_NOT_FOUND"
+    INVALID_STATE_TRANSITION = "INVALID_STATE_TRANSITION"
+    INVALID_ARTIFACT = "INVALID_ARTIFACT"
+    PLAN_NOT_FOUND = "PLAN_NOT_FOUND"
+    PLAN_VERSION_MISMATCH = "PLAN_VERSION_MISMATCH"
+    PLAN_NOT_APPROVED = "PLAN_NOT_APPROVED"
+    APPROVAL_REQUIRED = "APPROVAL_REQUIRED"
+    USER_CONTEXT_REQUIRED = "USER_CONTEXT_REQUIRED"
+    CONTEXT_NOT_SUFFICIENT = "CONTEXT_NOT_SUFFICIENT"
+    REVIEW_VERDICT_INVALID = "REVIEW_VERDICT_INVALID"
+    VALIDATION_ERROR = "VALIDATION_ERROR"
 
 
 @dataclass(frozen=True, slots=True)

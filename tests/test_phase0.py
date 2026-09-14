@@ -69,12 +69,12 @@ class Phase0Tests(unittest.TestCase):
             "workflow-1",
             to_state=WorkflowState.PLANNING,
             event_type="DISCOVERY_COMPLETED",
-            artifact={"id": "context-1", "artifact_type": "CONTEXT", "payload": {"sources": []}},
+            artifact={"id": "context-1", "artifact_type": "CONTEXT", "payload": {"id": "context-1", "workflowId": "workflow-1", "sources": [], "missingContext": [], "uncertainContext": [], "implementationRules": [], "createdAt": "now"}},
         )
         row = connection.execute("SELECT current_state FROM workflow WHERE id = 'workflow-1'").fetchone()
         payload = connection.execute("SELECT payload FROM artifact WHERE id = 'context-1'").fetchone()[0]
         self.assertEqual(row[0], "PLANNING")
-        self.assertEqual(decode_payload(payload), {"sources": []})
+        self.assertEqual(decode_payload(payload)["sources"], [])
 
         with self.assertRaises(ValueError):
             transition_workflow(
@@ -87,11 +87,23 @@ class Phase0Tests(unittest.TestCase):
         self.assertEqual(connection.execute("SELECT current_state FROM workflow WHERE id = 'workflow-1'").fetchone()[0], "PLANNING")
         self.assertIsNone(connection.execute("SELECT 1 FROM artifact WHERE id = 'bad'").fetchone())
 
+    def test_approval_version_effects_are_persisted(self) -> None:
+        connection = connect()
+        initialize(connection)
+        create_workflow(connection, "workflow-1", "task")
+        connection.execute("UPDATE workflow SET current_state = 'IMPLEMENTING', current_plan_version = 3, approved_plan_version = 3 WHERE id = 'workflow-1'")
+        connection.commit()
+        transition_workflow(connection, "workflow-1", to_state=WorkflowState.REVIEWING, event_type="IMPLEMENTATION_COMPLETED")
+        transition_workflow(connection, "workflow-1", to_state=WorkflowState.IMPLEMENTING, event_type="REVIEW_FIX_REQUIRED")
+        self.assertEqual(connection.execute("SELECT approved_plan_version FROM workflow WHERE id = 'workflow-1'").fetchone()[0], 3)
+        transition_workflow(connection, "workflow-1", to_state=WorkflowState.DISCOVERY, event_type="CONTEXT_REQUIRED", clear_approved_plan_version=True)
+        self.assertIsNone(connection.execute("SELECT approved_plan_version FROM workflow WHERE id = 'workflow-1'").fetchone()[0])
+
     def test_standalone_artifact_insert_is_transactional_and_transition_is_guarded(self) -> None:
         connection = connect()
         initialize(connection)
         create_workflow(connection, "workflow-1", "task")
-        insert_artifact(connection, "context-1", "workflow-1", "CONTEXT", {"value": 1})
+        insert_artifact(connection, "context-1", "workflow-1", "CONTEXT", {"id": "context-1", "workflowId": "workflow-1", "sources": [], "missingContext": [], "uncertainContext": [], "implementationRules": [], "createdAt": "now"})
         self.assertIsNotNone(connection.execute("SELECT 1 FROM artifact WHERE id = 'context-1'").fetchone())
         with self.assertRaises(ValueError):
             transition_workflow(connection, "workflow-1", to_state=WorkflowState.COMPLETED, event_type="REVIEW_PASSED")

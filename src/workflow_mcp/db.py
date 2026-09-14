@@ -65,6 +65,29 @@ def decode_payload(payload: str) -> dict[str, object]:
     return decoded
 
 
+ARTIFACT_REQUIRED_FIELDS = {
+    "CONTEXT": ("id", "workflowId", "sources", "missingContext", "uncertainContext", "implementationRules", "createdAt"),
+    "PLAN": ("id", "workflowId", "goal", "scope", "steps", "runtimeFlow", "tests", "assumptions", "risks", "createdAt"),
+    "APPROVAL": ("id", "workflowId", "planVersion", "approved", "approvedAt"),
+    "IMPLEMENTATION": ("id", "workflowId", "planVersion", "changedFiles", "testsRun", "deviations", "result", "createdAt"),
+    "REVIEW": ("id", "workflowId", "planVersion", "verdict", "planCompliance", "implementationRuleCompliance", "testCompliance", "scopeCompliance", "requirementCoverage", "createdAt"),
+    "USER_CONTEXT_REQUEST": ("id", "workflowId", "reason", "requestedContext", "createdAt"),
+    "USER_CONTEXT_RESPONSE": ("id", "workflowId", "content", "createdAt"),
+    "CONTEXT_REQUIREMENT": ("id", "workflowId", "reason", "neededContext", "createdAt"),
+}
+
+
+def validate_artifact(artifact_type: str, payload: object) -> dict[str, object]:
+    decoded = decode_payload(validate_payload(payload))
+    required = ARTIFACT_REQUIRED_FIELDS.get(artifact_type)
+    if required is None:
+        raise ValueError(f"unsupported artifact type: {artifact_type}")
+    missing = [field for field in required if field not in decoded]
+    if missing:
+        raise ValueError(f"{artifact_type} is missing required fields: {', '.join(missing)}")
+    return decoded
+
+
 def create_workflow(connection: sqlite3.Connection, workflow_id: str, task: str, session_id: str | None = None, project_path: str | None = None) -> dict[str, str]:
     if not isinstance(task, str) or not task.strip():
         raise ValueError("task must be a non-empty string")
@@ -86,9 +109,12 @@ def get_workflow_status(connection: sqlite3.Connection, workflow_id: str) -> sql
 
 
 def _insert_artifact(connection: sqlite3.Connection, artifact_id: str, workflow_id: str, artifact_type: str, payload: object, *, plan_version: int | None = None, created_at: str | None = None) -> None:
+    normalized = validate_artifact(artifact_type, payload)
+    if normalized.get("id") != artifact_id or normalized.get("workflowId") != workflow_id:
+        raise ValueError("artifact id/workflowId does not match insert arguments")
     connection.execute(
         "INSERT INTO artifact (id, workflow_id, artifact_type, plan_version, payload, created_at) VALUES (?, ?, ?, ?, ?, ?)",
-        (artifact_id, workflow_id, artifact_type, plan_version, validate_payload(payload), created_at or utc_now()),
+        (artifact_id, workflow_id, artifact_type, plan_version, validate_payload(normalized), created_at or utc_now()),
     )
 
 
@@ -98,7 +124,7 @@ def insert_artifact(connection: sqlite3.Connection, artifact_id: str, workflow_i
         _insert_artifact(connection, artifact_id, workflow_id, artifact_type, payload, plan_version=plan_version, created_at=created_at)
 
 
-def transition_workflow(connection: sqlite3.Connection, workflow_id: str, *, to_state: WorkflowState, event_type: str, artifact: dict[str, object] | None = None, plan_version: int | None = None) -> None:
+def transition_workflow(connection: sqlite3.Connection, workflow_id: str, *, to_state: WorkflowState, event_type: str, artifact: dict[str, object] | None = None, plan_version: int | None = None, current_plan_version: int | None = None, approved_plan_version: int | None = None, clear_approved_plan_version: bool = False) -> None:
     """Atomically update state and append optional Artifact plus Event."""
     now = utc_now()
     with transaction(connection):
@@ -109,7 +135,10 @@ def transition_workflow(connection: sqlite3.Connection, workflow_id: str, *, to_
             raise ValueError(f"invalid state transition: {row[0]} -> {to_state.value}")
         if artifact is not None:
             _insert_artifact(connection, str(artifact["id"]), workflow_id, str(artifact["artifact_type"]), artifact["payload"], plan_version=plan_version, created_at=now)
-        connection.execute("UPDATE workflow SET current_state = ?, updated_at = ? WHERE id = ?", (to_state.value, now, workflow_id))
+        connection.execute(
+            "UPDATE workflow SET current_state = ?, current_plan_version = COALESCE(?, current_plan_version), approved_plan_version = CASE WHEN ? THEN NULL ELSE COALESCE(?, approved_plan_version) END, updated_at = ? WHERE id = ?",
+            (to_state.value, current_plan_version, clear_approved_plan_version, approved_plan_version, now, workflow_id),
+        )
         connection.execute(
             "INSERT INTO workflow_event (workflow_id, event_type, from_state, to_state, plan_version, payload, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
             (workflow_id, event_type, row[0], to_state.value, plan_version, validate_payload(artifact or {}), now),
