@@ -1,47 +1,32 @@
-"""Application service for the Phase 0 in-memory workflow slice."""
+"""Application service for the Phase 1 workflow persistence slice."""
 
 from __future__ import annotations
 
 from typing import Any
 from uuid import uuid4
 
-from .models import Workflow, WorkflowState
+from .db import connect, create_workflow, get_workflow_status, initialize
 
 
 class WorkflowService:
-    def __init__(self) -> None:
-        self._workflows: dict[str, Workflow] = {}
+    def __init__(self, database: str = "workflow-mcp.sqlite3") -> None:
+        self.connection = connect(database)
+        initialize(self.connection)
 
-    def start(
-        self,
-        task: str,
-        session_id: str | None = None,
-        project_path: str | None = None,
-    ) -> dict[str, Any]:
-        workflow_id = str(uuid4())
-        workflow = Workflow(workflow_id, task, WorkflowState.DISCOVERY, session_id, project_path)
-        self._workflows[workflow_id] = workflow
-        return {"ok": True, "workflowId": workflow_id, "state": workflow.state.value}
+    def start(self, task: str, session_id: str | None = None, project_path: str | None = None) -> dict[str, Any]:
+        if not isinstance(task, str) or not task.strip():
+            return {"ok": False, "error": {"code": "VALIDATION_ERROR", "message": "task must be a non-empty string"}}
+        return {"ok": True, **create_workflow(self.connection, str(uuid4()), task, session_id, project_path)}
 
     def status(self, workflow_id: str) -> dict[str, Any]:
-        workflow = self._workflows.get(workflow_id)
-        if workflow is None:
-            return {
-                "ok": False,
-                "error": {"code": "WORKFLOW_NOT_FOUND", "message": "Workflow does not exist."},
-            }
+        row = get_workflow_status(self.connection, workflow_id)
+        if row is None:
+            return {"ok": False, "error": {"code": "WORKFLOW_NOT_FOUND", "message": "Workflow does not exist."}}
         return {
             "ok": True,
-            "workflowId": workflow.workflow_id,
-            "state": workflow.state.value,
-            "planVersion": None,
-            "approvedPlanVersion": None,
-            "latestArtifacts": {
-                "contextId": None,
-                "planId": None,
-                "approvalId": None,
-                "implementationId": None,
-                "reviewId": None,
-            },
+            "workflowId": row["workflow_id"],
+            "state": row["current_state"],
+            "planVersion": row["current_plan_version"],
+            "approvedPlanVersion": row["approved_plan_version"],
+            "latestArtifacts": {"contextId": row["latest_context_id"], "planId": row["latest_plan_id"], "approvalId": row["latest_approval_id"], "implementationId": row["latest_implementation_id"], "reviewId": row["latest_review_id"]},
         }
-

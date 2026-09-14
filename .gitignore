@@ -1,0 +1,4 @@
+__pycache__/
+*.py[cod]
+.pytest_cache/
+workflow-mcp.sqlite3
